@@ -6066,6 +6066,7 @@ unInstall() {
     fi
     # checkBTPanel
     echoContent yellow " ---> 脚本不会删除acme相关配置，删除请手动执行 [rm -rf /root/.acme.sh]"
+    handleNodeAndSubscribeCleanup
     handleNginx stop
     if [[ -z $(pgrep -f "nginx") ]]; then
         echoContent green " ---> 停止Nginx成功"
@@ -6113,7 +6114,7 @@ unInstall() {
     rm -rf /usr/sbin/vasma /usr/sbin/va /usr/sbin/VA
     echoContent green " ---> 卸载快捷方式完成"
     echoContent green " ---> 卸载v2ray-agent脚本完成"
-    echoContent yellow " ---> 请手动删除客户端内已保存的节点和订阅"
+    echoContent yellow " ---> 客户端内已导入的节点和订阅仍需手动删除"
 }
 
 # CDN节点管理
@@ -9125,6 +9126,52 @@ EOF
 # 卸载订阅
 unInstallSubscribe() {
     rm -rf ${nginxConfigPath}subscribe.conf >/dev/null 2>&1
+}
+
+# 处理节点与订阅数据
+handleNodeAndSubscribeCleanup() {
+    local cleanupNodeSubscribeStatus=
+    local backupDir=
+
+    read -r -p "是否自动删除节点和订阅配置？[回车默认y]:" cleanupNodeSubscribeStatus || cleanupNodeSubscribeStatus=""
+    normalizeYesNoInput cleanupNodeSubscribeStatus
+    cleanupNodeSubscribeStatus="${cleanupNodeSubscribeStatus,,}"
+
+    if [[ -z "${cleanupNodeSubscribeStatus}" ]]; then
+        cleanupNodeSubscribeStatus="y"
+    fi
+
+    if [[ "${cleanupNodeSubscribeStatus}" != "y" && "${cleanupNodeSubscribeStatus}" != "n" ]]; then
+        echoContent red " ---> 输入错误，请重新选择"
+        menu
+        exit 0
+    fi
+
+    if [[ "${cleanupNodeSubscribeStatus}" == "y" ]]; then
+        rm -rf /etc/v2ray-agent/subscribe >/dev/null 2>&1
+        rm -rf /etc/v2ray-agent/subscribe_local >/dev/null 2>&1
+        rm -rf /etc/v2ray-agent/subscribe_remote >/dev/null 2>&1
+        rm -rf ${nginxConfigPath}subscribe.conf >/dev/null 2>&1
+        echoContent green " ---> 已自动删除服务器端节点和订阅配置"
+        return 0
+    fi
+
+    backupDir="/root/v2ray-agent_uninstall_backup_$(date +%Y%m%d%H%M%S)"
+    mkdir -p "${backupDir}"
+
+    if [[ -d "/etc/v2ray-agent/subscribe" ]]; then
+        cp -r /etc/v2ray-agent/subscribe "${backupDir}/" >/dev/null 2>&1
+    fi
+    if [[ -d "/etc/v2ray-agent/subscribe_local" ]]; then
+        cp -r /etc/v2ray-agent/subscribe_local "${backupDir}/" >/dev/null 2>&1
+    fi
+    if [[ -d "/etc/v2ray-agent/subscribe_remote" ]]; then
+        cp -r /etc/v2ray-agent/subscribe_remote "${backupDir}/" >/dev/null 2>&1
+    fi
+    if [[ -f "${nginxConfigPath}subscribe.conf" ]]; then
+        cp "${nginxConfigPath}subscribe.conf" "${backupDir}/subscribe.conf" >/dev/null 2>&1
+    fi
+    echoContent yellow " ---> 已保留节点和订阅配置备份: ${backupDir}"
 }
 
 # 添加订阅
