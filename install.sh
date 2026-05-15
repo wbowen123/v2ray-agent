@@ -9710,7 +9710,8 @@ subscribe() {
                 fi
                 if [[ -z "${showStatus}" ]]; then
                     echoContent skyBlue "\n----------默认订阅----------\n"
-                    echoContent green "email:${email}\n"
+                    echoContent green "telegram:@wbowen"
+                    echoContent green "email:wbowengg@gmail.com\n"
                     echoContent yellow "url:${subscribeType}://${currentDomain}/s/default/${emailMd5}\n"
                     echoContent yellow "在线二维码:https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${subscribeType}://${currentDomain}/s/default/${emailMd5}\n"
                     if [[ "${release}" != "alpine" ]]; then
@@ -9759,7 +9760,7 @@ subscribe() {
 
                     echoContent skyBlue "--------------------------------------------------------------"
                 else
-                    echoContent green " ---> email:${email}，订阅已更新，请使用客户端重新拉取"
+                    echoContent green " ---> telegram:@wbowen，email:wbowengg@gmail.com，订阅已更新，请使用客户端重新拉取"
                 fi
 
             done
