@@ -1392,13 +1392,234 @@ startDockerStack() {
         echoContent red "Docker 栈启动失败"
         return 1
     }
+    if ! runDockerStackDiagnostics; then
+        echoContent red " ---> Docker 栈自检未通过，请先根据上面的日志修复后再使用节点"
+        return 1
+    fi
     stack_status="installed"
     saveState
     return 0
 }
 
+hasSingBoxService() {
+    local protocolId=""
+    for protocolId in 0 1 3 4 6 7 8 9 10 11 13; do
+        if containsProtocol "${protocolId}"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+hasXrayService() {
+    containsProtocol "12"
+}
+
+serviceToContainerName() {
+    case "$1" in
+    nginx)
+        printf '%s' "v2ray-agent-nginx"
+        ;;
+    sing-box)
+        printf '%s' "v2ray-agent-sing-box"
+        ;;
+    xray)
+        printf '%s' "v2ray-agent-xray"
+        ;;
+    *)
+        printf '%s' "$1"
+        ;;
+    esac
+}
+
+getExpectedServiceNames() {
+    echo "nginx"
+    if hasSingBoxService; then
+        echo "sing-box"
+    fi
+    if hasXrayService; then
+        echo "xray"
+    fi
+}
+
+ensureCriticalDependencies() {
+    local missingDeps=()
+    commandExists docker || missingDeps+=("docker")
+    commandExists python3 || missingDeps+=("python3")
+    commandExists openssl || missingDeps+=("openssl")
+    if [[ "${#missingDeps[@]}" -gt 0 ]]; then
+        echoContent red "缺少关键依赖: ${missingDeps[*]}"
+        echoContent yellow "请先安装以上依赖后再执行 Docker 八合一"
+        return 1
+    fi
+    ${compose_command} version >/dev/null 2>&1 || {
+        echoContent red "未检测到可用的 Docker Compose"
+        return 1
+    }
+    return 0
+}
+
+showComposePsSummary() {
+    if [[ -f "${COMPOSE_FILE}" ]]; then
+        ${compose_command} -f "${COMPOSE_FILE}" ps 2>/dev/null || true
+    fi
+}
+
+showServiceLogSnippet() {
+    local serviceName="$1"
+    local containerName=""
+    containerName="$(serviceToContainerName "${serviceName}")"
+    echoContent yellow "---------------- ${serviceName} 最近日志 ----------------"
+    docker logs --tail 30 "${containerName}" 2>/dev/null || echoContent red "无法读取 ${containerName} 日志"
+}
+
+isContainerRunning() {
+    local serviceName="$1"
+    local containerName=""
+    local runningState=""
+    containerName="$(serviceToContainerName "${serviceName}")"
+    runningState="$(docker inspect -f '{{.State.Running}}' "${containerName}" 2>/dev/null || true)"
+    [[ "${runningState}" == "true" ]]
+}
+
+waitForExpectedContainers() {
+    local retryCount=0
+    local serviceName=""
+    local allRunning="false"
+    while [[ "${retryCount}" -lt 8 ]]; do
+        allRunning="true"
+        while IFS= read -r serviceName; do
+            [[ -z "${serviceName}" ]] && continue
+            if ! isContainerRunning "${serviceName}"; then
+                allRunning="false"
+                break
+            fi
+        done < <(getExpectedServiceNames)
+        if [[ "${allRunning}" == "true" ]]; then
+            return 0
+        fi
+        sleep 2
+        retryCount=$((retryCount + 1))
+    done
+    return 1
+}
+
+isLocalPortListening() {
+    local portValue="$1"
+    local protocolType="$2"
+    if commandExists ss; then
+        if [[ "${protocolType}" == "udp" ]]; then
+            ss -lunH "sport = :${portValue}" 2>/dev/null | grep -q .
+        else
+            ss -lntH "sport = :${portValue}" 2>/dev/null | grep -q .
+        fi
+        return $?
+    fi
+    if commandExists netstat; then
+        if [[ "${protocolType}" == "udp" ]]; then
+            netstat -lun 2>/dev/null | grep -E "[\.:]${portValue}[[:space:]]" >/dev/null 2>&1
+        else
+            netstat -lnt 2>/dev/null | grep -E "[\.:]${portValue}[[:space:]]" >/dev/null 2>&1
+        fi
+        return $?
+    fi
+    return 1
+}
+
+getExpectedPortChecks() {
+    containsProtocol "0" && echo "VLESS+TCP[TLS_Vision]|${vless_tcp_port}|tcp"
+    containsProtocol "1" && echo "VLESS+WS[TLS]|${vless_ws_port}|tcp"
+    containsProtocol "3" && echo "VMess+WS[TLS]|${vmess_ws_port}|tcp"
+    containsProtocol "4" && echo "Trojan+TCP[TLS]|${trojan_port}|tcp"
+    containsProtocol "6" && echo "Hysteria2|${hysteria2_port}|udp"
+    containsProtocol "7" && echo "VLESS+Reality+Vision|${reality_vision_port}|tcp"
+    containsProtocol "8" && echo "VLESS+Reality+gRPC|${reality_grpc_port}|tcp"
+    containsProtocol "9" && echo "Tuic|${tuic_port}|udp"
+    containsProtocol "10" && echo "Naive|${naive_port}|tcp"
+    containsProtocol "11" && echo "VMess+TLS+HTTPUpgrade|${vmess_httpupgrade_port}|tcp"
+    containsProtocol "12" && echo "VLESS+Reality+XHTTP|${reality_xhttp_port}|tcp"
+    containsProtocol "13" && echo "AnyTLS|${anytls_port}|tcp"
+    [[ -n "${subscribe_port}" ]] && echo "订阅服务|${subscribe_port}|tcp"
+}
+
+checkSubscribeEndpoint() {
+    local subscribeHost="127.0.0.1"
+    local subscribeUrl=""
+    [[ -z "${subscribe_port}" ]] && return 0
+    if ! commandExists curl; then
+        echoContent yellow " ---> 未安装 curl，跳过订阅入口自检"
+        return 0
+    fi
+    if [[ -n "${current_host}" ]]; then
+        subscribeHost="${current_host}"
+        subscribeUrl="${subscribe_type}://${current_host}:${subscribe_port}/"
+        curl -kfsS --connect-timeout 5 --max-time 8 --resolve "${current_host}:${subscribe_port}:127.0.0.1" "${subscribeUrl}" >/dev/null 2>&1
+    else
+        subscribeUrl="http://127.0.0.1:${subscribe_port}/"
+        curl -fsS --connect-timeout 5 --max-time 8 "${subscribeUrl}" >/dev/null 2>&1
+    fi
+}
+
+runDockerStackDiagnostics() {
+    local serviceName=""
+    local portCheckLine=""
+    local protocolName=""
+    local portValue=""
+    local protocolType=""
+    local hasFailure="false"
+
+    echoContent skyBlue "\n================ Docker 八合一安装后自检 ================"
+    ensureCriticalDependencies || return 1
+
+    if ! waitForExpectedContainers; then
+        echoContent red " ---> 自检失败: 容器未全部正常运行"
+        showComposePsSummary
+        while IFS= read -r serviceName; do
+            [[ -z "${serviceName}" ]] && continue
+            if ! isContainerRunning "${serviceName}"; then
+                echoContent red " ---> ${serviceName} 未正常运行"
+                showServiceLogSnippet "${serviceName}"
+            fi
+        done < <(getExpectedServiceNames)
+        return 1
+    fi
+
+    echoContent green " ---> 容器运行状态正常"
+    showComposePsSummary
+
+    while IFS= read -r portCheckLine; do
+        [[ -z "${portCheckLine}" ]] && continue
+        IFS='|' read -r protocolName portValue protocolType <<<"${portCheckLine}"
+        if isLocalPortListening "${portValue}" "${protocolType}"; then
+            echoContent green " ---> 监听正常: ${protocolName} ${portValue}/${protocolType}"
+        else
+            echoContent red " ---> 监听异常: ${protocolName} ${portValue}/${protocolType}"
+            hasFailure="true"
+        fi
+    done < <(getExpectedPortChecks)
+
+    if checkSubscribeEndpoint; then
+        echoContent green " ---> 订阅入口检测正常"
+    else
+        echoContent red " ---> 订阅入口检测失败，请检查 nginx、域名解析和证书"
+        hasFailure="true"
+    fi
+
+    if [[ "${hasFailure}" == "true" ]]; then
+        while IFS= read -r serviceName; do
+            [[ -z "${serviceName}" ]] && continue
+            showServiceLogSnippet "${serviceName}"
+        done < <(getExpectedServiceNames)
+        return 1
+    fi
+
+    echoContent green " ---> Docker 八合一自检通过"
+    return 0
+}
+
 rebuildDockerStack() {
     ensureProjectDirs
+    ensureCriticalDependencies || return 1
     createInitialUserIfMissing
     if [[ ! -f "${FAKE_SITE_DIR}/index.html" || "${fake_site_mode}" == "default" || "${fake_site_mode}" == "custom_title" ]]; then
         writeDefaultFakeSite
@@ -1885,6 +2106,7 @@ coreManageMenu() {
     echoContent yellow "1.查看 core 状态"
     echoContent yellow "2.重启 Docker 栈"
     echoContent yellow "3.拉取最新镜像并重建"
+    echoContent yellow "4.执行安装后自检"
     echoContent red "=============================================================="
     read -r -p "请选择:" coreMenuStatus
     case "${coreMenuStatus}" in
@@ -1902,6 +2124,9 @@ coreManageMenu() {
         }
         startDockerStack
         echoContent green " ---> 镜像已更新并重建 Docker 栈"
+        ;;
+    4)
+        runDockerStackDiagnostics
         ;;
     *)
         echoContent red " ---> 选择错误"
