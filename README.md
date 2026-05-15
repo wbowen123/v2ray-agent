@@ -31,12 +31,18 @@ Xray-core/sing-box 一键脚本快速安装
 wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/wbowen123/v2ray-agent-/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
 ```
 
+### 卸载脚本
+
+```
+wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/wbowen123/v2ray-agent-/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
+```
+
 ### 使用
 
 安装后，运行以下命令可再次打开管理菜单:
 
 ```
-vasma
+va
 ```
 
 ### 安装Docker版
