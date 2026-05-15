@@ -31,10 +31,18 @@ Xray-core/sing-box 一键脚本快速安装
 wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/wbowen123/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
 ```
 
+```
+curl -L -o /root/install.sh "https://raw.githubusercontent.com/wbowen123/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
+```
+
 ### 卸载脚本
 
 ```
-wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/wbowen123/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && /root/install.sh
+wget -P /root -N --no-check-certificate "https://raw.githubusercontent.com/wbowen123/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && printf '20\ny\n' | /root/install.sh
+```
+
+```
+curl -L -o /root/install.sh "https://raw.githubusercontent.com/wbowen123/v2ray-agent/master/install.sh" && chmod 700 /root/install.sh && printf '20\ny\n' | /root/install.sh
 ```
 
 ### 使用
