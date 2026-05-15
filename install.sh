@@ -32,6 +32,12 @@ echoContent() {
         ;;
     esac
 }
+normalizeYesNoInput() {
+    local var_name=$1
+    local var_value="${!var_name}"
+    printf -v "${var_name}" '%s' "${var_value,,}"
+}
+
 # 检查SELinux状态
 checkCentosSELinux() {
     if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" == "Enforcing" ]; then
@@ -458,9 +464,19 @@ installLocalTLS() {
 
     if checkLocalTLSDomain "${tlsDomain}"; then
         read -r -p "检测到本地证书，是否直接使用？[y/n]:" useLocalTLSStatus
+        normalizeYesNoInput useLocalTLSStatus
     else
         echoContent yellow " ---> 本地证书未匹配当前域名:${tlsDomain}"
         read -r -p "是否仍然使用该本地证书？[y/n]:" useLocalTLSStatus
+        normalizeYesNoInput useLocalTLSStatus
+    fi
+
+    useLocalTLSStatus="${useLocalTLSStatus,,}"
+
+    if [[ "${useLocalTLSStatus}" != "y" && "${useLocalTLSStatus}" != "n" ]]; then
+        echoContent red " ---> 输入错误，请重新选择"
+        menu
+        exit 0
     fi
 
     if [[ "${useLocalTLSStatus}" != "y" ]]; then
@@ -926,6 +942,7 @@ readSingBoxConfig() {
 readLastInstallationConfig() {
     if [[ -n "${configPath}" ]]; then
         read -r -p "读取到上次安装的配置，是否使用 ？[y/n]:" lastInstallationConfigStatus
+        normalizeYesNoInput lastInstallationConfigStatus
         if [[ "${lastInstallationConfigStatus}" == "y" ]]; then
             lastInstallationConfig=true
         fi
@@ -1350,6 +1367,7 @@ installTools() {
             nginxVersion=$(echo "${nginxVersion}" | awk -F "[n][g][i][n][x][/]" '{print $2}' | awk -F "[.]" '{print $2}')
             if [[ ${nginxVersion} -lt 14 ]]; then
                 read -r -p "读取到当前的Nginx版本不支持gRPC，会导致安装失败，是否卸载Nginx后重新安装 ？[y/n]:" unInstallNginxStatus
+                normalizeYesNoInput unInstallNginxStatus
                 if [[ "${unInstallNginxStatus}" == "y" ]]; then
                     ${removeType} nginx >/dev/null 2>&1
                     echoContent yellow " ---> nginx卸载完成"
@@ -1608,6 +1626,7 @@ initTLSNginxConfig() {
     if [[ -n "${currentHost}" && -z "${lastInstallationConfig}" ]]; then
         echo
         read -r -p "读取到上次安装记录，是否使用上次安装时的域名 ？[y/n]:" historyDomainStatus
+        normalizeYesNoInput historyDomainStatus
         if [[ "${historyDomainStatus}" == "y" ]]; then
             domain=${currentHost}
             echoContent yellow "\n ---> 域名: ${domain}"
@@ -1877,6 +1896,7 @@ checkIP() {
 customSSLEmail() {
     if echo "$1" | grep -q "validate email"; then
         read -r -p "是否重新输入邮箱地址[y/n]:" sslEmailStatus
+        normalizeYesNoInput sslEmailStatus
         if [[ "${sslEmailStatus}" == "y" ]]; then
             sed '/ACCOUNT_EMAIL/d' /root/.acme.sh/account.conf >/root/.acme.sh/account.conf_tmp && mv /root/.acme.sh/account.conf_tmp /root/.acme.sh/account.conf
         else
@@ -1901,6 +1921,7 @@ customSSLEmail() {
 # DNS API申请证书
 switchDNSAPI() {
     read -r -p "是否使用DNS API申请证书[支持NAT]？[y/n]:" dnsAPIStatus
+    normalizeYesNoInput dnsAPIStatus
     if [[ "${dnsAPIStatus}" == "y" ]]; then
         echoContent red "\n=============================================================="
         echoContent yellow "1.cloudflare[默认]"
@@ -1936,6 +1957,7 @@ initDNSAPIConfig() {
                 exit 0
             fi
             read -r -p "是否使用*.${dnsTLSDomain}进行API申请通配符证书？[y/n]:" dnsAPIStatus
+            normalizeYesNoInput dnsAPIStatus
         fi
     elif [[ "$1" == "aliyun" ]]; then
         read -r -p "请输入Ali Key:" aliKey
@@ -1950,6 +1972,7 @@ initDNSAPIConfig() {
                 exit 0
             fi
             read -r -p "是否使用*.${dnsTLSDomain}进行API申请通配符证书？[y/n]:" dnsAPIStatus
+            normalizeYesNoInput dnsAPIStatus
         fi
     fi
 }
@@ -2030,6 +2053,7 @@ customPortFunction() {
         echo
         if [[ -z "${lastInstallationConfig}" ]]; then
             read -r -p "读取到上次安装时的端口，是否使用上次安装时的端口？[y/n]:" historyCustomPortStatus
+            normalizeYesNoInput historyCustomPortStatus
             if [[ "${historyCustomPortStatus}" == "y" ]]; then
                 port=${currentPort}
                 echoContent yellow "\n ---> 端口: ${port}"
@@ -2117,6 +2141,7 @@ installTLS() {
                 if [[ -z "${lastInstallationConfig}" ]]; then
                     echoContent yellow " ---> 如未过期或者自定义证书请选择[n]\n"
                     read -r -p "是否重新安装？[y/n]:" reInstallStatus
+                    normalizeYesNoInput reInstallStatus
                     if [[ "${reInstallStatus}" == "y" ]]; then
                         rm -rf /etc/v2ray-agent/tls/*
                         installTLS "$1"
@@ -2192,6 +2217,7 @@ randomPathFunction() {
     if [[ -n "${currentPath}" && -z "${lastInstallationConfig}" ]]; then
         echo
         read -r -p "读取到上次安装记录，是否使用上次安装时的path路径 ？[y/n]:" historyPathStatus
+        normalizeYesNoInput historyPathStatus
         echo
     elif [[ -n "${currentPath}" && -n "${lastInstallationConfig}" ]]; then
         historyPathStatus="y"
@@ -2241,6 +2267,7 @@ nginxBlog() {
         echo
         if [[ -z "${lastInstallationConfig}" ]]; then
             read -r -p "检测到安装伪装站点，是否需要重新安装[y/n]:" nginxBlogInstallStatus
+            normalizeYesNoInput nginxBlogInstallStatus
         else
             nginxBlogInstallStatus="n"
         fi
@@ -2457,6 +2484,7 @@ installSingBox() {
 
         if [[ ! -f "/etc/v2ray-agent/sing-box/sing-box-${version/v/}${singBoxCoreCPUVendor}.tar.gz" ]]; then
             read -r -p "核心下载失败，请重新尝试安装，是否重新尝试？[y/n]" downloadStatus
+            normalizeYesNoInput downloadStatus
             if [[ "${downloadStatus}" == "y" ]]; then
                 installSingBox "$1"
             fi
@@ -2476,6 +2504,7 @@ installSingBox() {
 
         if [[ -z "${lastInstallationConfig}" ]]; then
             read -r -p "是否更新、升级？[y/n]:" reInstallSingBoxStatus
+            normalizeYesNoInput reInstallSingBoxStatus
             if [[ "${reInstallSingBoxStatus}" == "y" ]]; then
                 rm -f /etc/v2ray-agent/sing-box/sing-box
                 installSingBox "$1"
@@ -2519,6 +2548,7 @@ installXray() {
 
         if [[ ! -f "/etc/v2ray-agent/xray/${xrayCoreCPUVendor}.zip" ]]; then
             read -r -p "核心下载失败，请重新尝试安装，是否重新尝试？[y/n]" downloadStatus
+            normalizeYesNoInput downloadStatus
             if [[ "${downloadStatus}" == "y" ]]; then
                 installXray "$1"
             fi
@@ -2545,6 +2575,7 @@ installXray() {
         if [[ -z "${lastInstallationConfig}" ]]; then
             echoContent green " ---> Xray-core版本:$(/etc/v2ray-agent/xray/xray --version | awk '{print $2}' | head -1)"
             read -r -p "是否更新、升级？[y/n]:" reInstallXrayStatus
+            normalizeYesNoInput reInstallXrayStatus
             if [[ "${reInstallXrayStatus}" == "y" ]]; then
                 rm -f /etc/v2ray-agent/xray/xray
                 installXray "$1" "$2"
@@ -2668,6 +2699,7 @@ updateXray() {
 
         if [[ -n "$1" ]]; then
             read -r -p "回退版本为${version}，是否继续？[y/n]:" rollbackXrayStatus
+            normalizeYesNoInput rollbackXrayStatus
             if [[ "${rollbackXrayStatus}" == "y" ]]; then
                 echoContent green " ---> 当前Xray-core版本:$(/etc/v2ray-agent/xray/xray --version | awk '{print $2}' | head -1)"
 
@@ -2679,6 +2711,7 @@ updateXray() {
             fi
         elif [[ "${version}" == "v$(/etc/v2ray-agent/xray/xray --version | awk '{print $2}' | head -1)" ]]; then
             read -r -p "当前版本与最新版相同，是否重新安装？[y/n]:" reInstallXrayStatus
+            normalizeYesNoInput reInstallXrayStatus
             if [[ "${reInstallXrayStatus}" == "y" ]]; then
                 handleXray stop
                 rm -f /etc/v2ray-agent/xray/xray
@@ -2688,6 +2721,7 @@ updateXray() {
             fi
         else
             read -r -p "最新版本为:${version}，是否更新？[y/n]:" installXrayStatus
+            normalizeYesNoInput installXrayStatus
             if [[ "${installXrayStatus}" == "y" ]]; then
                 rm /etc/v2ray-agent/xray/xray
                 updateXray
@@ -3099,6 +3133,7 @@ initHysteriaPort() {
     readSingBoxConfig
     if [[ -n "${hysteriaPort}" ]]; then
         read -r -p "读取到上次安装时的端口，是否使用上次安装时的端口？[y/n]:" historyHysteriaPortStatus
+        normalizeYesNoInput historyHysteriaPortStatus
         if [[ "${historyHysteriaPortStatus}" == "y" ]]; then
             echoContent yellow "\n ---> 端口: ${hysteriaPort}"
         else
@@ -3323,6 +3358,7 @@ initTuicPort() {
     readSingBoxConfig
     if [[ -n "${tuicPort}" ]]; then
         read -r -p "读取到上次安装时的端口，是否使用上次安装时的端口？[y/n]:" historyTuicPortStatus
+        normalizeYesNoInput historyTuicPortStatus
         if [[ "${historyTuicPortStatus}" == "y" ]]; then
             echoContent yellow "\n ---> 端口: ${tuicPort}"
         else
@@ -3353,6 +3389,7 @@ initTuicPort() {
 initTuicProtocol() {
     if [[ -n "${tuicAlgorithm}" && -z "${lastInstallationConfig}" ]]; then
         read -r -p "读取到上次使用的算法，是否使用 ？[y/n]:" historyTuicAlgorithm
+        normalizeYesNoInput historyTuicAlgorithm
         if [[ "${historyTuicAlgorithm}" != "y" ]]; then
             tuicAlgorithm=
         else
@@ -3455,6 +3492,7 @@ addSingBoxRouteRule() {
     # 读取上次安装内容
     if [[ -f "${singBoxConfigPath}${routingName}.json" ]]; then
         read -r -p "读取到上次的配置，是否保留 ？[y/n]:" historyRouteStatus
+        normalizeYesNoInput historyRouteStatus
         if [[ "${historyRouteStatus}" == "y" ]]; then
             domainList="${domainList},$(jq -rc .route.rules[0].rule_set[] "${singBoxConfigPath}${routingName}.json" | awk -F "[_]" '{print $1}' | paste -sd ',')"
             domainList="${domainList},$(jq -rc .route.rules[0].domain_regex[] "${singBoxConfigPath}${routingName}.json" | awk -F "[*]" '{print $2}' | paste -sd ',' | sed 's/\\//g')"
@@ -3932,6 +3970,7 @@ initSingBoxPort() {
     local port=$1
     if [[ -n "${port}" && -z "${lastInstallationConfig}" ]]; then
         read -r -p "读取到上次使用的端口，是否使用 ？[y/n]:" historyPort
+        normalizeYesNoInput historyPort
         if [[ "${historyPort}" != "y" ]]; then
             port=
         else
@@ -3964,6 +4003,7 @@ initXrayConfig() {
     local addClientsStatus=
     if [[ -n "${currentUUID}" && -z "${lastInstallationConfig}" ]]; then
         read -r -p "读取到上次用户配置，是否使用上次安装的配置 ？[y/n]:" historyUUIDStatus
+        normalizeYesNoInput historyUUIDStatus
         if [[ "${historyUUIDStatus}" == "y" ]]; then
             addClientsStatus=true
             echoContent green "\n ---> 使用成功"
@@ -4419,6 +4459,7 @@ EOF
 initTCPBrutal() {
     echoContent skyBlue "\n进度 $2/${totalProgress} : 初始化TCP_Brutal配置"
     read -r -p "是否使用TCP_Brutal？[y/n]:" tcpBrutalStatus
+    normalizeYesNoInput tcpBrutalStatus
     if [[ "${tcpBrutalStatus}" == "y" ]]; then
         read -r -p "请输入本地带宽峰值的下行速度（默认：100，单位：Mbps）:" tcpBrutalClientDownloadSpeed
         if [[ -z "${tcpBrutalClientDownloadSpeed}" ]]; then
@@ -4446,6 +4487,7 @@ initSingBoxConfig() {
     fi
     if [[ -n "${currentUUID}" && -z "${lastInstallationConfig}" ]]; then
         read -r -p "读取到上次用户配置，是否使用上次安装的配置 ？[y/n]:" historyUUIDStatus
+        normalizeYesNoInput historyUUIDStatus
         if [[ "${historyUUIDStatus}" == "y" ]]; then
             addClientsStatus=true
             echoContent green "\n ---> 使用成功"
@@ -5964,6 +6006,7 @@ EOF
 # 卸载脚本
 unInstall() {
     read -r -p "是否确认卸载安装内容？[y/n]:" unInstallStatus
+    normalizeYesNoInput unInstallStatus
     if [[ "${unInstallStatus}" != "y" ]]; then
         echoContent green " ---> 放弃卸载"
         menu
@@ -6667,6 +6710,7 @@ ipv6Routing() {
         echoContent yellow "1.会删除所有设置的分流规则"
         echoContent yellow "2.会删除IPv6之外的所有出站规则\n"
         read -r -p "是否确认设置？[y/n]:" IPv6OutStatus
+        normalizeYesNoInput IPv6OutStatus
 
         if [[ "${IPv6OutStatus}" == "y" ]]; then
             if [[ "${coreInstallType}" == "1" ]]; then
@@ -7339,6 +7383,7 @@ installWarpReg() {
         echoContent yellow "# 项目地址：https://github.com/badafans/warp-reg \n"
 
         read -r -p "warp-reg未安装，是否安装 ？[y/n]:" installWarpRegStatus
+        normalizeYesNoInput installWarpRegStatus
 
         if [[ "${installWarpRegStatus}" == "y" ]]; then
 
@@ -7494,6 +7539,7 @@ warpRoutingReg() {
         echoContent yellow "1.会删除所有设置的分流规则"
         echoContent yellow "2.会删除除WARP[第三方]之外的所有出站规则\n"
         read -r -p "是否确认设置？[y/n]:" warpOutStatus
+        normalizeYesNoInput warpOutStatus
 
         if [[ "${warpOutStatus}" == "y" ]]; then
             readConfigWarpReg
@@ -7760,6 +7806,7 @@ setSocks5OutboundRoutingAll() {
     echoContent yellow "1.会删除所有已经设置的分流规则，包括其他分流（warp、IPv6等）"
     echoContent yellow "2.会删除Socks5之外的所有出站规则\n"
     read -r -p "是否确认设置？[y/n]:" socksOutStatus
+    normalizeYesNoInput socksOutStatus
 
     if [[ "${socksOutStatus}" == "y" ]]; then
         if [[ "${coreInstallType}" == "1" ]]; then
@@ -8000,6 +8047,7 @@ setSocks5InboundRouting() {
     echoContent yellow "如无法匹配则，则使用domain精确匹配\n"
 
     read -r -p "是否允许所有网站？请选择[y/n]:" socks5InboundRoutingDomainStatus
+    normalizeYesNoInput socks5InboundRoutingDomainStatus
     if [[ "${socks5InboundRoutingDomainStatus}" == "y" ]]; then
         addSingBoxRouteRule "01_direct_outbound" "" "socks5_02_inbound_route"
         local route=
@@ -8929,6 +8977,7 @@ installSubscribe() {
         if echo "${nginxVersion}" | grep -q "not found" || [[ -z "${nginxVersion}" ]]; then
             echoContent yellow "未检测到nginx，无法使用订阅服务\n"
             read -r -p "是否安装[y/n]？" installNginxStatus
+            normalizeYesNoInput installNginxStatus
             if [[ "${installNginxStatus}" == "y" ]]; then
                 installNginxTools
             else
@@ -8954,6 +9003,7 @@ installSubscribe() {
             echoContent yellow "未发现tls证书，使用无加密订阅，可能被运营商拦截，请注意风险。"
             echo
             read -r -p "是否使用http订阅[y/n]？" addNginxSubscribeStatus
+            normalizeYesNoInput addNginxSubscribeStatus
             echo
             if [[ "${addNginxSubscribeStatus}" != "y" ]]; then
                 echoContent yellow " ---> 退出安装"
@@ -9060,6 +9110,7 @@ addOtherSubscribe() {
         fi
         echo
         read -r -p "是否是HTTP订阅？[y/n]" httpSubscribeStatus
+        normalizeYesNoInput httpSubscribeStatus
         if [[ "${httpSubscribeStatus}" == "y" ]]; then
             remoteSubscribeUrl="${remoteSubscribeUrl}:http"
         fi
@@ -9484,6 +9535,7 @@ subscribe() {
         if [[ -f "/etc/v2ray-agent/subscribe_local/subscribeSalt" && -n $(cat "/etc/v2ray-agent/subscribe_local/subscribeSalt") ]]; then
             if [[ -z "${renewSalt}" ]]; then
                 read -r -p "读取到上次安装设置的Salt，是否使用上次生成的Salt ？[y/n]:" historySaltStatus
+                normalizeYesNoInput historySaltStatus
                 if [[ "${historySaltStatus}" == "y" ]]; then
                     subscribeSalt=$(cat /etc/v2ray-agent/subscribe_local/subscribeSalt)
                 else
@@ -9514,6 +9566,7 @@ subscribe() {
             if [[ -f "/etc/v2ray-agent/subscribe_remote/remoteSubscribeUrl" && -n $(cat "/etc/v2ray-agent/subscribe_remote/remoteSubscribeUrl") ]]; then
                 if [[ -z "${renewSalt}" ]]; then
                     read -r -p "读取到其他订阅，是否更新？[y/n]" updateOtherSubscribeStatus
+                    normalizeYesNoInput updateOtherSubscribeStatus
                 else
                     updateOtherSubscribeStatus=y
                 fi
@@ -9714,6 +9767,7 @@ initRealityKey() {
     echoContent skyBlue "\n生成Reality key\n"
     if [[ -n "${currentRealityPublicKey}" && -z "${lastInstallationConfig}" ]]; then
         read -r -p "读取到上次安装记录，是否使用上次安装时的PublicKey/PrivateKey ？[y/n]:" historyKeyStatus
+        normalizeYesNoInput historyKeyStatus
         if [[ "${historyKeyStatus}" == "y" ]]; then
             realityPrivateKey=${currentRealityPrivateKey}
             realityPublicKey=${currentRealityPublicKey}
@@ -9756,6 +9810,7 @@ initRealityMldsa65() {
         if [ "$length" -gt 3500 ]; then
             if [[ -n "${currentRealityMldsa65}" && -z "${lastInstallationConfig}" ]]; then
                 read -r -p "读取到上次安装记录，是否使用上次安装时的Seed/Verify ？[y/n]:" historyMldsa65Status
+                normalizeYesNoInput historyMldsa65Status
                 if [[ "${historyMldsa65Status}" == "y" ]]; then
                     realityMldsa65Seed=${currentRealityMldsa65Seed}
                     realityMldsa65Verify=${currentRealityMldsa65Verify}
@@ -9792,6 +9847,7 @@ checkRealityDest() {
     if [[ -n "${traceResult}" ]]; then
         echoContent red "\n ---> 检测到使用的域名，托管在cloudflare并开启了代理，使用此类型域名可能导致VPS流量被其他人使用[不建议使用]\n"
         read -r -p "是否继续 ？[y/n]" setRealityDestStatus
+        normalizeYesNoInput setRealityDestStatus
         if [[ "${setRealityDestStatus}" != 'y' ]]; then
             exit 0
         fi
@@ -9799,17 +9855,73 @@ checkRealityDest() {
     fi
 }
 
+getRealityTargetDomainPool() {
+    cat <<EOF
+prod.log.shortbread.aws.dev
+www.microsoft.com
+ts4.tc.mm.bing.net
+www.hp.com
+assets.cloudflare.com
+www.bing.com
+ipv6.6sc.co
+www.gstatic.com
+www.adobe.com
+ts3.tc.mm.bing.net
+www.japan.travel
+www.aniplex.co.jp
+www.caltech.edu
+www.princeton.edu
+www.columbia.edu
+www.ucla.edu
+www.asus.com
+www.ibm.com
+www.synology.com
+www.vmware.com
+EOF
+}
+
+getRealityTargetDomainCSV() {
+    getRealityTargetDomainPool | paste -sd ','
+}
+
+getCurrentTimeMillis() {
+    local currentMillis=
+    currentMillis=$(date +%s%3N 2>/dev/null)
+    if [[ "${currentMillis}" =~ ^[0-9]+$ ]]; then
+        echo "${currentMillis}"
+    else
+        echo "$(( $(date +%s) * 1000 ))"
+    fi
+}
+
+testRealityTargetDomains() {
+    local targetDomain=
+    while read -r targetDomain; do
+        [[ -z "${targetDomain}" ]] && continue
+        local targetHost="${targetDomain}"
+        local targetPort="443"
+        local startTime=
+        local endTime=
+        if [[ "${targetDomain}" == *":"* ]]; then
+            targetHost=$(echo "${targetDomain}" | awk -F "[:]" '{print $1}')
+            targetPort=$(echo "${targetDomain}" | awk -F "[:]" '{print $2}')
+        fi
+        startTime=$(getCurrentTimeMillis)
+        if timeout 1 openssl s_client -connect "${targetHost}:${targetPort}" -servername "${targetHost}" </dev/null >/dev/null 2>&1; then
+            endTime=$(getCurrentTimeMillis)
+            echo "$((endTime - startTime))|${targetHost}|${targetPort}"
+        fi
+    done < <(getRealityTargetDomainPool) | sort -t '|' -k1,1n
+}
+
 # 初始化客户端可用的ServersName
 initRealityClientServersName() {
     local realityDestDomainList=
-    if [[ "${coreInstallType}" == "1" || "${selectCoreType}" == "1" ]]; then
-        realityDestDomainList="download-installer.cdn.mozilla.net,addons.mozilla.org,s0.awsstatic.com,d1.awsstatic.com,images-na.ssl-images-amazon.com,m.media-amazon.com,player.live-video.net,one-piece.com,lol.secure.dyn.riotcdn.net,www.lovelive-anime.jp,academy.nvidia.com,dl.google.com,www.google-analytics.com,www.caltech.edu,www.calstatela.edu,www.suny.edu,www.suffolk.edu,www.python.org,vuejs-jp.org,vuejs.org,zh-hk.vuejs.org,react.dev,www.java.com,www.oracle.com,www.mysql.com,www.mongodb.com,redis.io,cname.vercel-dns.com,vercel-dns.com,www.swift.com,academy.nvidia.com,www.swift.com,www.cisco.com,www.asus.com,www.samsung.com,www.amd.com,www.umcg.nl,www.fom-international.com,www.u-can.co.jp,github.io"
-    elif [[ "${coreInstallType}" == "2" || "${selectCoreType}" == "2" ]]; then
-        realityDestDomainList="download-installer.cdn.mozilla.net,addons.mozilla.org,s0.awsstatic.com,d1.awsstatic.com,images-na.ssl-images-amazon.com,m.media-amazon.com,player.live-video.net,one-piece.com,lol.secure.dyn.riotcdn.net,www.lovelive-anime.jp,academy.nvidia.com,dl.google.com,www.google-analytics.com,www.python.org,vuejs-jp.org,vuejs.org,zh-hk.vuejs.org,react.dev,www.java.com,www.oracle.com,www.mysql.com,www.mongodb.com,cname.vercel-dns.com,vercel-dns.com,www.swift.com,academy.nvidia.com,www.swift.com,www.cisco.com,www.asus.com,www.samsung.com,www.amd.com,www.fom-international.com,github.io"
-    fi
+    realityDestDomainList=$(getRealityTargetDomainCSV)
     if [[ -n "${realityServerName}" && -z "${lastInstallationConfig}" ]]; then
         if echo ${realityDestDomainList} | grep -q "${realityServerName}"; then
             read -r -p "读取到上次安装设置的Reality域名，是否使用？[y/n]:" realityServerNameStatus
+            normalizeYesNoInput realityServerNameStatus
             if [[ "${realityServerNameStatus}" != "y" ]]; then
                 realityServerName=
                 realityDomainPort=
@@ -9827,6 +9939,7 @@ initRealityClientServersName() {
         if [[ -n "${domain}" ]]; then
             echo
             read -r -p "是否使用 ${domain} 此域名作为Reality目标域名 ？[y/n]:" realityServerNameCurrentDomainStatus
+            normalizeYesNoInput realityServerNameCurrentDomainStatus
             if [[ "${realityServerNameCurrentDomainStatus}" == "y" ]]; then
                 realityServerName="${domain}"
                 if [[ "${selectCoreType}" == "1" ]]; then
@@ -9852,16 +9965,79 @@ initRealityClientServersName() {
             fi
         fi
         if [[ -z "${realityServerName}" ]]; then
+            local realityDomainTestStatus=
+            local realityCustomServerName=
+            local fastestRealityServerName=
+            local fastestRealityDomainPort=443
+            local count=
+            local randomNum=
             realityDomainPort=443
             echoContent skyBlue "\n================ 配置客户端可用的serverNames ===============\n"
             echoContent yellow "#注意事项"
             echoContent green "Reality目标可用域名列表：https://www.v2ray-agent.com/archives/1689439383686#heading-3\n"
             echoContent yellow "录入示例:addons.mozilla.org:443\n"
-            read -r -p "请输入目标域名，[回车]随机域名，默认端口443:" realityServerName
+            echoContent yellow "可执行测速脚本，自动按延迟排序 20 个常用伪装域名\n"
+            read -r -p "是否执行Reality伪装域名测速脚本？[回车默认y]:" realityDomainTestStatus
+            if [[ -z "${realityDomainTestStatus}" ]]; then
+                realityDomainTestStatus="y"
+            fi
+            normalizeYesNoInput realityDomainTestStatus
+            if [[ "${realityDomainTestStatus}" == "y" ]]; then
+                local -a realityLatencyList=()
+                local realityLatencyIndex=1
+                local realityLatencyItem=
+                echoContent skyBlue "\n---------------- 开始测速候选伪装域名 ----------------"
+                mapfile -t realityLatencyList < <(testRealityTargetDomains)
+                if [[ ${#realityLatencyList[@]} -gt 0 ]]; then
+                    echoContent yellow "已按延迟从低到高排序如下："
+                    for realityLatencyItem in "${realityLatencyList[@]}"; do
+                        local realityLatency=
+                        local realityLatencyServerName=
+                        local realityLatencyPort=
+                        realityLatency=$(echo "${realityLatencyItem}" | awk -F "[|]" '{print $1}')
+                        realityLatencyServerName=$(echo "${realityLatencyItem}" | awk -F "[|]" '{print $2}')
+                        realityLatencyPort=$(echo "${realityLatencyItem}" | awk -F "[|]" '{print $3}')
+                        echoContent green " ${realityLatencyIndex}. ${realityLatencyServerName}:${realityLatencyPort} - ${realityLatency} ms"
+                        if [[ "${realityLatencyIndex}" == "1" ]]; then
+                            fastestRealityServerName="${realityLatencyServerName}"
+                            fastestRealityDomainPort="${realityLatencyPort}"
+                        fi
+                        ((realityLatencyIndex++))
+                    done
+                    echo
+                    read -r -p "是否按最快速度伪装？[回车默认y]:" useFastestRealityDomainStatus
+                    if [[ -z "${useFastestRealityDomainStatus}" ]]; then
+                        useFastestRealityDomainStatus="y"
+                    fi
+                    normalizeYesNoInput useFastestRealityDomainStatus
+                    if [[ "${useFastestRealityDomainStatus}" == "y" ]]; then
+                        realityServerName="${fastestRealityServerName}"
+                        realityDomainPort="${fastestRealityDomainPort}"
+                    else
+                        read -r -p "请输入要使用的编号，[回车]继续手动输入:" selectRealityDomainIndex
+                        if [[ -n "${selectRealityDomainIndex}" ]] && [[ "${selectRealityDomainIndex}" =~ ^[0-9]+$ ]] && [[ "${selectRealityDomainIndex}" -ge 1 ]] && [[ "${selectRealityDomainIndex}" -le ${#realityLatencyList[@]} ]]; then
+                            selectedRealityDomain="${realityLatencyList[$((selectRealityDomainIndex - 1))]}"
+                            realityServerName=$(echo "${selectedRealityDomain}" | awk -F "[|]" '{print $2}')
+                            realityDomainPort=$(echo "${selectedRealityDomain}" | awk -F "[|]" '{print $3}')
+                        fi
+                    fi
+                else
+                    echoContent red " ---> 未检测到可用的伪装域名，请手动输入"
+                fi
+            fi
+            if [[ -n "${realityServerName}" ]]; then
+                echoContent green "\n ---> 当前已选测速域名: ${realityServerName}:${realityDomainPort}"
+                read -r -p "请输入目标域名覆盖当前结果，[回车]直接使用当前结果:" realityCustomServerName
+            else
+                read -r -p "请输入目标域名，[回车]随机域名，默认端口443:" realityCustomServerName
+            fi
+            if [[ -n "${realityCustomServerName}" ]]; then
+                realityServerName="${realityCustomServerName}"
+                realityDomainPort=443
+            fi
             if [[ -z "${realityServerName}" ]]; then
                 count=$(echo ${realityDestDomainList} | awk -F',' '{print NF}')
                 randomNum=$(randomNum 1 "${count}")
-
                 realityServerName=$(echo "${realityDestDomainList}" | awk -F ',' -v randomNum="$randomNum" '{print $randomNum}')
             fi
             if echo "${realityServerName}" | grep -q ":"; then
@@ -9877,6 +10053,7 @@ initRealityClientServersName() {
 initXrayRealityPort() {
     if [[ -n "${xrayVLESSRealityPort}" && -z "${lastInstallationConfig}" ]]; then
         read -r -p "读取到上次安装记录，是否使用上次安装时的端口 ？[y/n]:" historyRealityPortStatus
+        normalizeYesNoInput historyRealityPortStatus
         if [[ "${historyRealityPortStatus}" == "y" ]]; then
             realityPort=${xrayVLESSRealityPort}
         fi
@@ -9917,6 +10094,7 @@ initXrayRealityPort() {
 initXrayXHTTPort() {
     if [[ -n "${xrayVLESSRealityXHTTPort}" && -z "${lastInstallationConfig}" ]]; then
         read -r -p "读取到上次安装记录，是否使用上次安装时的端口 ？[y/n]:" historyXHTTPortStatus
+        normalizeYesNoInput historyXHTTPortStatus
         if [[ "${historyXHTTPortStatus}" == "y" ]]; then
             xHTTPort=${xrayVLESSRealityXHTTPort}
         fi
@@ -10002,6 +10180,7 @@ realityScanner() {
     fi
 
     read -r -p "某些IDC不允许扫描操作，比如搬瓦工，其中风险请自行承担，是否继续？[y/n]:" scanStatus
+    normalizeYesNoInput scanStatus
 
     if [[ "${scanStatus}" != "y" ]]; then
         exit 0
@@ -10015,6 +10194,7 @@ realityScanner() {
     fi
 
     read -r -p "IP是否正确？[y/n]:" ipStatus
+    normalizeYesNoInput ipStatus
     if [[ "${ipStatus}" == "y" ]]; then
         echoContent yellow "结果存储在 /etc/v2ray-agent/xray/reality_scan/result.log 文件中\n"
         /etc/v2ray-agent/xray/reality_scan/RealiTLScanner-linux-64 -addr "${publicIP}" | tee /etc/v2ray-agent/xray/reality_scan/result.log
