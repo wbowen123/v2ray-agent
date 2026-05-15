@@ -1,8 +1,13 @@
 # v2ray-agent
 
-- [复刻并感谢 mack-a 的提供]( https://github.com/mack-a/v2ray-agent)
-
 Xray-core/sing-box 一键脚本快速安装
+
+- [复刻并感谢 mack-a 的提供]( https://github.com/mack-a/v2ray-agent)
+- [联系 TELE:@wbowen ]
+- <img width="389" height="451" alt="TELE" src="https://github.com/user-attachments/assets/51115114-9ece-4789-8c29-659a611f3bec" />
+
+
+
 
 ## 功能
 
