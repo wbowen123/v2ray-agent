@@ -648,6 +648,129 @@ installLocalTLS() {
     return 0
 }
 
+detectPackageManager() {
+    if commandExists apt-get; then
+        echo "apt"
+        return 0
+    fi
+    if commandExists dnf; then
+        echo "dnf"
+        return 0
+    fi
+    if commandExists yum; then
+        echo "yum"
+        return 0
+    fi
+    if commandExists apk; then
+        echo "apk"
+        return 0
+    fi
+    echo ""
+    return 1
+}
+
+installSystemPackages() {
+    local manager=""
+    manager="$(detectPackageManager)"
+    if [[ -z "${manager}" ]]; then
+        return 1
+    fi
+    case "${manager}" in
+    apt)
+        DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
+        DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >/dev/null 2>&1
+        ;;
+    dnf)
+        dnf install -y "$@" >/dev/null 2>&1
+        ;;
+    yum)
+        yum install -y "$@" >/dev/null 2>&1
+        ;;
+    apk)
+        apk add --no-cache "$@" >/dev/null 2>&1
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+ensureAcmeDependencies() {
+    local missing=()
+    commandExists curl || missing+=("curl")
+    commandExists socat || missing+=("socat")
+    if [[ "${#missing[@]}" -gt 0 ]]; then
+        installSystemPackages "${missing[@]}" || return 1
+    fi
+    commandExists curl && commandExists socat
+}
+
+ensureAcmeShInstalled() {
+    if [[ -f "/root/.acme.sh/acme.sh" ]]; then
+        return 0
+    fi
+    ensureAcmeDependencies || return 1
+    curl -fsSL https://get.acme.sh | sh -s -- --home /root/.acme.sh >/dev/null 2>&1 || return 1
+    [[ -f "/root/.acme.sh/acme.sh" ]]
+}
+
+installTLSByAcmeStandalone() {
+    local tlsDomain="$1"
+    local acmeLogFile="${PROJECT_ROOT}/tls/acme.log"
+    local reloadCmd=""
+
+    if [[ -z "${tlsDomain}" ]]; then
+        return 1
+    fi
+
+    if [[ "${tlsDomain}" != *.* ]]; then
+        echoContent red " ---> 域名格式不正确：${tlsDomain}"
+        return 1
+    fi
+
+    if isLocalPortListening 80 tcp; then
+        echoContent red " ---> 80 端口被占用，无法使用 standalone 模式申请证书"
+        echoContent yellow " ---> 请先释放 80 端口（停止占用的 Web 服务）后重试"
+        return 1
+    fi
+
+    ensureAcmeShInstalled || {
+        echoContent red " ---> 安装 acme.sh 失败，请手动安装后重试"
+        return 1
+    }
+
+    mkdir -p "${PROJECT_ROOT}/tls"
+    : >"${acmeLogFile}"
+
+    echoContent green " ---> 正在申请 TLS 证书（acme.sh standalone 80 端口）"
+    /root/.acme.sh/acme.sh --issue -d "${tlsDomain}" --standalone -k ec-256 --server letsencrypt 2>&1 | tee -a "${acmeLogFile}" >/dev/null
+
+    reloadCmd='docker restart v2ray-agent-nginx v2ray-agent-sing-box v2ray-agent-xray >/dev/null 2>&1 || true'
+    /root/.acme.sh/acme.sh --installcert -d "${tlsDomain}" --fullchainpath "${PROJECT_ROOT}/tls/${tlsDomain}.crt" --keypath "${PROJECT_ROOT}/tls/${tlsDomain}.key" --ecc --reloadcmd "${reloadCmd}" >/dev/null 2>&1
+
+    if [[ ! -s "${PROJECT_ROOT}/tls/${tlsDomain}.crt" || ! -s "${PROJECT_ROOT}/tls/${tlsDomain}.key" ]]; then
+        echoContent red " ---> TLS 证书申请失败"
+        tail -n 15 "${acmeLogFile}" 2>/dev/null || true
+        echoContent yellow " ---> 常见原因：域名未解析到本机 / 80端口未放行 / 80端口被占用"
+        return 1
+    fi
+
+    if ! openssl x509 -in "${PROJECT_ROOT}/tls/${tlsDomain}.crt" -noout >/dev/null 2>&1; then
+        echoContent red " ---> 证书文件格式异常"
+        return 1
+    fi
+    if ! openssl pkey -in "${PROJECT_ROOT}/tls/${tlsDomain}.key" -noout >/dev/null 2>&1; then
+        echoContent red " ---> 私钥文件格式异常"
+        return 1
+    fi
+
+    chmod 600 "${PROJECT_ROOT}/tls/${tlsDomain}.crt" "${PROJECT_ROOT}/tls/${tlsDomain}.key"
+    tls_cert_file="${PROJECT_ROOT}/tls/${tlsDomain}.crt"
+    tls_key_file="${PROJECT_ROOT}/tls/${tlsDomain}.key"
+    echoContent green " ---> TLS 证书申请并安装成功"
+    return 0
+}
+
 protocolSelectionRequiresTLS() {
     local tlsProtocol
     for tlsProtocol in 0 1 3 4 6 9 10 11 13; do
@@ -813,8 +936,17 @@ promptBaseInstallSettings() {
         fi
 
         if [[ ! -f "${PROJECT_ROOT}/tls/${current_host}.crt" || ! -f "${PROJECT_ROOT}/tls/${current_host}.key" ]]; then
-            echoContent red "未检测到可用本地证书，请先准备证书后再继续"
-            return 1
+            read -r -p "未检测到可用本地证书，是否自动申请新证书？[回车默认y]:" inputValue
+            if [[ -z "${inputValue}" ]]; then
+                inputValue="y"
+            fi
+            normalizeYesNoInput inputValue
+            if [[ "${inputValue}" == "y" ]]; then
+                installTLSByAcmeStandalone "${current_host}" || return 1
+            else
+                echoContent red "已取消申请证书，无法继续安装 TLS 协议"
+                return 1
+            fi
         fi
 
         tls_cert_file="${PROJECT_ROOT}/tls/${current_host}.crt"
